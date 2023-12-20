@@ -1,62 +1,66 @@
 # myapp/views.py
 from django.shortcuts import render
-from django.http import JsonResponse
+from .forms import Chatform
 from openai import OpenAI
 import os
 
-os.environ["OPENAI_API_KEY"] = "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"
+from dotenv import load_dotenv
+load_dotenv('var.env')
 
-client = OpenAI()
+
+key = os.getenv('OPENAI_API_KEY')
+client = OpenAI(api_key=key)
+print(f"The response is : {key}\n\n\n")
 
 def make_openai_request(prompt):
     response = client.completions.create(
-        model="gpt-3.5-turbo",
+        model="text-davinci-003",
         prompt=prompt,
         temperature=1,
-        max_tokens=256,
         top_p=1,
         frequency_penalty=0,
-        presence_penalty=0
+        presence_penalty=0,
+        max_tokens=500
     )
     print("OpenAI Request:", response)
     return response
 
 
-def chat_view(request):
+def chat(request):
     conversation = request.session.get('conversation', [])
-
     if request.method == 'POST':
-        user_input = request.POST.get('user_input')
+        if request.POST.get('query'):
+            form =Chatform(request.POST)
+            user_input=''
+            if form.is_valid():
+                user_input=form.cleaned_data['userquery']
+            # Define your chatbot's predefined prompts
+            # prompts = []
 
-        # Define your chatbot's predefined prompts
-        prompts = []
+            # Append user input to the conversation
+            if user_input:
+                conversation.append({"role": "user", "content": user_input})
 
-        # Append user input to the conversation
-        if user_input:
-            conversation.append({"role": "user", "content": user_input})
+            # Append conversation messages to prompts
+            # prompts.append(conversation)
+            queryresponse = make_openai_request(user_input)
 
-        # Append conversation messages to prompts
-        prompts.extend(conversation)
-        response = make_openai_request("".join(message["content"] for message in conversation))
+            # Extract chatbot replies from the response
+            chatbot_replies = queryresponse.choices[0].text
 
-        # Extract chatbot replies from the response
-        chatbot_replies = [message['choices'][0]['message']['content'] for message in response['choices'] if message['role'] == 'assistant']
+            # Append chatbot replies to the conversation
+            conversation.append({"role": "assistant", "content": chatbot_replies})
 
-        # Append chatbot replies to the conversation
-        for reply in chatbot_replies:
-            conversation.append({"role": "assistant", "content": reply})
+            # Update the conversation in the session
+            request.session['conversation'] = conversation
 
-        # Update the conversation in the session
-        request.session['conversation'] = conversation
-
-        return render(request, 'myapp/chat.html', {'user_input': user_input, 'chatbot_replies': chatbot_replies, 'conversation': conversation})
+            return render(request, 'chat.html', {'user_input': user_input, 'chatbot_replies': chatbot_replies, 'conversation': conversation,'form':form})
+        else:        
+            request.session.clear()
+            form =Chatform()
+            return render(request, 'chat.html', {'conversation': [],'form':form})
     else:
         request.session.clear()
-        return render(request, 'myapp/chat.html', {'conversation': conversation})
+        form =Chatform()
+        return render(request, 'chat.html', {'conversation': conversation,'form':form})
 
-def chat(request):
-    return render(request, "myapp/chat.html")
-
-def chatAPI(request):
-    response = make_openai_request("")
-    return JsonResponse(response)
